@@ -1,0 +1,297 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  ADMIN
+  OPS_MANAGER
+  SALESPERSON
+  MATERIAL_MANAGER   // Sohail bhai
+  INSTALLATION_TEAM
+  PORTAL_USER        // Rahul bhai
+  ACCOUNTANT         // Meera
+  SERVICE_TECH
+}
+
+enum ProjectStage {
+  INQUIRY_RECEIVED       // Stage 1
+  SITE_VISIT_PLANNED     // Stage 2
+  QUOTATION_SENT         // Stage 3
+  DEAL_CLOSED            // Stage 4
+  GOVT_DOCS_SUBMITTED    // Stage 5 (National / GEDA Portal)
+  SR_NUMBER_ISSUED       // Stage 6 (4-10 days verification)
+  MATERIAL_PLANNED       // Stage 7 (Serials matched)
+  MATERIAL_UNLOADED      // Stage 8 (Terrace delivery proof)
+  INSTALLATION_DONE      // Stage 9 (Structure & Wiring)
+  METER_FILE_SUBMITTED   // Stage 10 (GEB submission)
+  METER_STARTED          // Stage 11 (Bidirectional meter live)
+  SUBSIDY_CLAIMED        // Stage 12 (PM Surya Ghar portal claim)
+  SUBSIDY_RECEIVED       // Stage 13 (Credited into customer bank)
+  COMPLETED              // Stage 14 (Bill delivered & feedback)
+}
+
+enum FollowupStatus {
+  ON_TRACK
+  DELAYED
+  DONE
+  CALL_DONE
+  NOT_REACHABLE
+}
+
+enum PaymentMilestoneType {
+  BOOKING_ADVANCE
+  MATERIAL_UNLOAD
+  INSTALLATION_METER
+  SUBSIDY_SETTLEMENT
+}
+
+enum PaymentStatus {
+  PENDING
+  DUE
+  PAID
+}
+
+enum TicketStatus {
+  LOGGED
+  VISIT_SCHEDULED
+  RESOLVED
+  CLOSED
+}
+
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  phone         String    @unique @db.VarChar(15)
+  passwordHash  String    @db.VarChar(255)
+  fullName      String    @db.VarChar(100)
+  role          UserRole
+  isActive      Boolean   @default(true)
+  fcmToken      String?   @db.Text
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+  updatedAt     DateTime  @updatedAt @db.Timestamptz
+
+  assignedInquiries  Inquiry[]          @relation("SalespersonInquiries")
+  createdFollowups   FollowupLog[]      @relation("UserFollowups")
+  assignedTickets    ServiceTicket[]    @relation("TechnicianTickets")
+
+  @@index([role, isActive])
+}
+
+model Inquiry {
+  id                    String        @id @default(uuid()) @db.Uuid
+  followupId            String        @unique @db.VarChar(20) // e.g. "F-1024"
+  customerName          String        @db.VarChar(150)
+  customerPhone         String        @db.VarChar(15)
+  address               String        @db.Text
+  city                  String        @db.VarChar(100)
+  requestedKw           Decimal       @db.Decimal(5, 2)
+  meterPhase            String        @db.VarChar(20)   // 'Single Phase' or 'Three Phase'
+  isUrgent              Boolean       @default(false)
+  currentStage          ProjectStage  @default(INQUIRY_RECEIVED)
+  
+  assignedSalespersonId String?       @db.Uuid
+  assignedSalesperson   User?         @relation("SalespersonInquiries", fields: [assignedSalespersonId], references: [id])
+  assignedAt            DateTime?     @db.Timestamptz
+  quoteDueDays          Int?          @default(3)
+
+  dealAmount            Decimal?      @db.Decimal(12, 2)
+  closedAt              DateTime?     @db.Timestamptz
+
+  customerAccessToken   String        @unique @default(uuid()) @db.VarChar(64)
+
+  createdAt             DateTime      @default(now()) @db.Timestamptz
+  updatedAt             DateTime      @updatedAt @db.Timestamptz
+
+  followups             FollowupLog[]
+  quotation             Quotation?
+  siteVisit             SiteVisit?
+  documents             CustomerDocument[]
+  materialDispatch      MaterialDispatch?
+  installationJob       InstallationJob?
+  portalApplication     PortalApplication?
+  payments              PaymentMilestone[]
+  serviceTickets        ServiceTicket[]
+  feedback              CustomerFeedback?
+
+  @@index([currentStage, isUrgent])
+  @@index([assignedSalespersonId])
+}
+
+model FollowupLog {
+  id            String          @id @default(uuid()) @db.Uuid
+  inquiryId     String          @db.Uuid
+  inquiry       Inquiry         @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  createdById   String          @db.Uuid
+  createdBy     User            @relation("UserFollowups", fields: [createdById], references: [id])
+  
+  stage         ProjectStage
+  status        FollowupStatus
+  description   String          @db.Text
+  nextStep      String?         @db.Text
+  committedDate DateTime        @db.Timestamptz
+  isOverdue     Boolean         @default(false)
+  
+  createdAt     DateTime        @default(now()) @db.Timestamptz
+
+  @@index([inquiryId, stage])
+  @@index([committedDate, isOverdue])
+}
+
+model Quotation {
+  id                  String    @id @default(uuid()) @db.Uuid
+  quotationNo         String    @unique @db.VarChar(50) // e.g. "TSS/2627/02"
+  inquiryId           String    @unique @db.Uuid
+  inquiry             Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  panelBrand          String    @db.VarChar(50)
+  panelTech           String    @db.VarChar(50)
+  panelWattage        Int
+  panelQuantity       Int
+  plantCapacityKw     Decimal   @db.Decimal(6, 3)
+  inverterBrand       String    @db.VarChar(50)
+  inverterCapacityKw  Decimal   @db.Decimal(5, 2)
+
+  grossCost           Decimal   @db.Decimal(12, 2)
+  meterCharges        Decimal   @db.Decimal(8, 2)
+  centralSubsidy      Decimal   @db.Decimal(10, 2)
+  stateSubsidy        Decimal   @default(0) @db.Decimal(10, 2)
+  netCustomerCost     Decimal   @db.Decimal(12, 2)
+
+  annualGenerationKwh Decimal   @db.Decimal(10, 2)
+  annualSavingsRs     Decimal   @db.Decimal(12, 2)
+  paybackPeriodYears  Decimal   @db.Decimal(4, 2)
+  co2ReductionTonnes  Int
+  treesSavedAnnually  Int
+
+  pdfFilePath         String?   @db.VarChar(255)
+  createdAt           DateTime  @default(now()) @db.Timestamptz
+}
+
+model SiteVisit {
+  id              String    @id @default(uuid()) @db.Uuid
+  inquiryId       String    @unique @db.Uuid
+  inquiry         Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  roofAreaChecked Boolean   @default(false)
+  meterWiringSeen Boolean   @default(false)
+  notes           String?   @db.Text
+  photos          String[]
+  visitedAt       DateTime  @default(now()) @db.Timestamptz
+}
+
+model CustomerDocument {
+  id            String    @id @default(uuid()) @db.Uuid
+  inquiryId     String    @db.Uuid
+  inquiry       Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  docType       String    @db.VarChar(50) // 'LIGHT_BILL', 'AADHAAR', 'CHEQUE_PASSBOOK', 'PHOTO'
+  filePath      String    @db.VarChar(255)
+  isVerified    Boolean   @default(false)
+  uploadedAt    DateTime  @default(now()) @db.Timestamptz
+
+  @@index([inquiryId, docType])
+}
+
+model MaterialDispatch {
+  id                  String    @id @default(uuid()) @db.Uuid
+  inquiryId           String    @unique @db.Uuid
+  inquiry             Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  inverterSerialNo    String?   @db.VarChar(100)
+  panelSerialNumbers  Json?
+  scheduledUnloadDate DateTime? @db.Date
+  actualUnloadedDate  DateTime? @db.Date
+  amountDueOnUnload   Decimal   @db.Decimal(12, 2)
+  unloadPhotos        String[]
+  isVerifiedByStore   Boolean   @default(false)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz
+}
+
+model InstallationJob {
+  id                  String    @id @default(uuid()) @db.Uuid
+  inquiryId           String    @unique @db.Uuid
+  inquiry             Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  structureDone       Boolean   @default(false)
+  structurePhotos     String[]
+  panelsMounted       Boolean   @default(false)
+  wiringDone          Boolean   @default(false)
+  earthingSystemCheck Boolean   @default(false)
+  
+  installedInverterSerial String? @db.VarChar(100)
+  installedPanelSerials   Json?
+  completedAt             DateTime? @db.Timestamptz
+}
+
+model PortalApplication {
+  id                  String    @id @default(uuid()) @db.Uuid
+  inquiryId           String    @unique @db.Uuid
+  inquiry             Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  portalType          String    @default("NATIONAL_PORTAL") @db.VarChar(50)
+  srNumber            String?   @db.VarChar(100)
+  docsSubmittedDate   DateTime? @db.Date
+  srNumberIssuedDate  DateTime? @db.Date
+  
+  meterFileSubmitDate DateTime? @db.Date
+  gebMeterInstallDate DateTime? @db.Date
+  meterStartDate      DateTime? @db.Date
+  
+  subsidyStatus       String    @default("PENDING") @db.VarChar(50)
+  subsidyQueryNo      String?   @db.VarChar(50)
+  subsidyQueryDesc    String?   @db.Text
+  subsidyReceivedDate DateTime? @db.Date
+}
+
+model PaymentMilestone {
+  id              String                @id @default(uuid()) @db.Uuid
+  inquiryId       String                @db.Uuid
+  inquiry         Inquiry               @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  milestoneType   PaymentMilestoneType
+  title           String                @db.VarChar(100)
+  amount          Decimal               @db.Decimal(12, 2)
+  status          PaymentStatus         @default(PENDING)
+  dueDate         DateTime?             @db.Date
+  paidAt          DateTime?             @db.Timestamptz
+  transactionRef  String?               @db.VarChar(100)
+
+  @@index([inquiryId, status])
+}
+
+model ServiceTicket {
+  id                  String        @id @default(uuid()) @db.Uuid
+  ticketNo            String        @unique @db.VarChar(20)
+  inquiryId           String        @db.Uuid
+  inquiry             Inquiry       @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  issueType           String        @db.VarChar(100)
+  isUrgent            Boolean       @default(false)
+  status              TicketStatus  @default(LOGGED)
+  
+  assignedTechnicianId String?      @db.Uuid
+  assignedTechnician   User?        @relation("TechnicianTickets", fields: [assignedTechnicianId], references: [id])
+  
+  partsUsed           String[]
+  daysToResolve       Int?          @default(1)
+  isChargeable        Boolean       @default(false)
+  repairPhotos        String[]
+  resolvedAt          DateTime?     @db.Timestamptz
+  createdAt           DateTime      @default(now()) @db.Timestamptz
+}
+
+model CustomerFeedback {
+  id          String    @id @default(uuid()) @db.Uuid
+  inquiryId   String    @unique @db.Uuid
+  inquiry     Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  
+  rating      Int
+  tags        String[]
+  comments    String?   @db.Text
+  submittedAt DateTime  @default(now()) @db.Timestamptz
+}
+
