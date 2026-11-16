@@ -23,6 +23,16 @@ export class InquiriesController {
     return this.inquiriesService.findAll(filter, user);
   }
 
+  @Get('salespersons')
+  async getSalespersons() {
+    return this.inquiriesService.getSalespersons();
+  }
+
+  @Get('my-notifications')
+  async getMyNotifications(@CurrentUser() user: any) {
+    return this.inquiriesService.getMyNotifications(user);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.inquiriesService.findOne(id);

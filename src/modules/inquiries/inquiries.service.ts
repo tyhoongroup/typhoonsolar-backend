@@ -19,6 +19,28 @@ export class InquiriesService {
   async create(dto: CreateInquiryDto, opsUserId: string) {
     const followupId = await this.generateNextFollowupId();
 
+    // Resiliently resolve assigned salesperson by UUID, phone number, or name
+    let assignedSalespersonId: string | null = null;
+    if (dto.assignedSalespersonId) {
+      let sp = await this.prisma.user.findFirst({
+        where: { id: dto.assignedSalespersonId, role: UserRole.SALESPERSON },
+      });
+      if (!sp) {
+        sp = await this.prisma.user.findFirst({
+          where: {
+            OR: [
+              { phone: dto.assignedSalespersonId },
+              { fullName: { contains: dto.assignedSalespersonId, mode: 'insensitive' } },
+            ],
+            role: UserRole.SALESPERSON,
+          },
+        });
+      }
+      if (sp) {
+        assignedSalespersonId = sp.id;
+      }
+    }
+
     const result = await this.prisma.$transaction(async (tx) => {
       const inquiry = await tx.inquiry.create({
         data: {
@@ -30,9 +52,10 @@ export class InquiriesService {
           requestedKw: dto.requestedKw,
           meterPhase: dto.meterPhase,
           isUrgent: dto.isUrgent ?? false,
-          currentStage: dto.assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
-          assignedSalespersonId: dto.assignedSalespersonId || null,
-          quoteDueDays: dto.assignedSalespersonId ? 3 : null,
+          currentStage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
+          assignedSalespersonId: assignedSalespersonId || null,
+          assignedAt: assignedSalespersonId ? new Date() : null,
+          quoteDueDays: assignedSalespersonId ? 3 : null,
         },
       });
 
@@ -41,12 +64,12 @@ export class InquiriesService {
         data: {
           inquiryId: inquiry.id,
           createdById: opsUserId,
-          stage: dto.assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
+          stage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
           status: FollowupStatus.CALL_DONE,
-          description: dto.assignedSalespersonId
+          description: assignedSalespersonId
             ? `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city} and assigned to salesperson.`
             : `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city}.`,
-          nextStep: dto.assignedSalespersonId ? 'Visit terrace or send quotation' : 'Assign salesperson',
+          nextStep: assignedSalespersonId ? 'Visit terrace or send quotation' : 'Assign salesperson',
           committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // Next day
         },
       });
@@ -54,16 +77,86 @@ export class InquiriesService {
       return inquiry;
     });
 
-    if (dto.assignedSalespersonId) {
+    if (assignedSalespersonId) {
       await this.fcmService.sendToUser({
-        userId: dto.assignedSalespersonId,
-        title: 'New Lead Assigned',
-        body: `Lead ${dto.customerName} (${dto.requestedKw} kW) has been assigned to you.`,
-        targetUrl: `/inquiries/${result.id}`,
+        userId: assignedSalespersonId,
+        title: dto.isUrgent ? 'URGENT Lead Assigned' : 'New Lead Assigned',
+        body: `Lead ${dto.customerName} (${dto.requestedKw} kW · ${dto.city}) has been assigned to you.`,
+        targetUrl: `/inquiries/${followupId}`,
+        isUrgent: dto.isUrgent ?? false,
       });
     }
 
     return result;
+  }
+
+  async getSalespersons() {
+    return this.prisma.user.findMany({
+      where: {
+        role: UserRole.SALESPERSON,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+      },
+      orderBy: { fullName: 'asc' },
+    });
+  }
+
+  async getMyNotifications(user: { id: string; role: UserRole }) {
+    if (user.role === UserRole.SALESPERSON) {
+      const recentAssigned = await this.prisma.inquiry.findMany({
+        where: { assignedSalespersonId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        select: {
+          id: true,
+          followupId: true,
+          customerName: true,
+          customerPhone: true,
+          requestedKw: true,
+          meterPhase: true,
+          city: true,
+          isUrgent: true,
+          currentStage: true,
+          createdAt: true,
+          assignedAt: true,
+        },
+      });
+
+      return recentAssigned.map((inq) => ({
+        id: inq.id,
+        followupId: inq.followupId,
+        title: inq.isUrgent ? `URGENT Lead Assigned: ${inq.customerName}` : `New Lead Assigned: ${inq.customerName}`,
+        body: `${inq.requestedKw} kW · ${inq.meterPhase} · ${inq.city} (+91 ${inq.customerPhone})`,
+        stage: inq.currentStage,
+        time: inq.assignedAt || inq.createdAt,
+        targetUrl: `/inquiries/${inq.followupId}`,
+        isUrgent: inq.isUrgent,
+      }));
+    }
+
+    // For Ops Manager, Admin & Others
+    const allRecent = await this.prisma.inquiry.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 15,
+      include: {
+        assignedSalesperson: { select: { fullName: true } },
+      },
+    });
+
+    return allRecent.map((inq) => ({
+      id: inq.id,
+      followupId: inq.followupId,
+      title: inq.isUrgent ? `URGENT Lead: ${inq.customerName}` : `Lead Created: ${inq.customerName}`,
+      body: `${inq.requestedKw} kW in ${inq.city} · Assigned to: ${inq.assignedSalesperson?.fullName || 'Unassigned'}`,
+      stage: inq.currentStage,
+      time: inq.createdAt,
+      targetUrl: `/inquiries/${inq.followupId}`,
+      isUrgent: inq.isUrgent,
+    }));
   }
 
   async findAll(filter: InquiryFilterDto, user: { id: string; role: UserRole }) {
