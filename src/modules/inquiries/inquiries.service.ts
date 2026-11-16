@@ -4,6 +4,8 @@ import { FcmNotificationService } from '../notifications/fcm.service';
 import { CreateInquiryDto, AssignSalespersonDto, SiteVisitReportDto, CloseDealDto, InquiryFilterDto, UploadDocumentsDto, DocumentQueryDto } from './dto/inquiry.dto';
 import { ProjectStage, UserRole, FollowupStatus } from '@prisma/client';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class InquiriesService {
   constructor(
@@ -12,82 +14,125 @@ export class InquiriesService {
   ) {}
 
   private async generateNextFollowupId(): Promise<string> {
-    const count = await this.prisma.inquiry.count();
-    return `F-${1001 + count}`;
+    try {
+      const inquiries = await this.prisma.inquiry.findMany({
+        select: { followupId: true },
+      });
+      let maxNum = 1024;
+      for (const inq of inquiries) {
+        const match = inq.followupId?.match(/\d+/);
+        if (match) {
+          const num = parseInt(match[0], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+      return `F-${maxNum + 1}`;
+    } catch {
+      return `F-${Date.now().toString().slice(-4)}`;
+    }
   }
 
   async create(dto: CreateInquiryDto, opsUserId: string) {
-    const followupId = await this.generateNextFollowupId();
+    try {
+      const followupId = await this.generateNextFollowupId();
 
-    // Resiliently resolve assigned salesperson by UUID, phone number, or name
-    let assignedSalespersonId: string | null = null;
-    if (dto.assignedSalespersonId) {
-      let sp = await this.prisma.user.findFirst({
-        where: { id: dto.assignedSalespersonId, role: UserRole.SALESPERSON },
-      });
-      if (!sp) {
-        sp = await this.prisma.user.findFirst({
-          where: {
-            OR: [
-              { phone: dto.assignedSalespersonId },
-              { fullName: { contains: dto.assignedSalespersonId, mode: 'insensitive' } },
-            ],
-            role: UserRole.SALESPERSON,
+      // 1. Resiliently resolve assigned salesperson by UUID, phone number, or name
+      let assignedSalespersonId: string | null = null;
+      if (dto.assignedSalespersonId) {
+        let sp: { id: string } | null = null;
+        if (UUID_REGEX.test(dto.assignedSalespersonId)) {
+          sp = await this.prisma.user.findFirst({
+            where: { id: dto.assignedSalespersonId, role: UserRole.SALESPERSON },
+            select: { id: true },
+          });
+        }
+        if (!sp) {
+          sp = await this.prisma.user.findFirst({
+            where: {
+              OR: [
+                { phone: dto.assignedSalespersonId },
+                { fullName: { contains: dto.assignedSalespersonId, mode: 'insensitive' } },
+              ],
+              role: UserRole.SALESPERSON,
+            },
+            select: { id: true },
+          });
+        }
+        if (sp) {
+          assignedSalespersonId = sp.id;
+        }
+      }
+
+      // 2. Resiliently resolve creator user ID for audit follow-up log
+      let creatorId: string | null = null;
+      if (opsUserId && UUID_REGEX.test(opsUserId)) {
+        const creator = await this.prisma.user.findUnique({
+          where: { id: opsUserId },
+          select: { id: true },
+        });
+        if (creator) creatorId = creator.id;
+      }
+      if (!creatorId) {
+        const anyStaff = await this.prisma.user.findFirst({
+          where: { role: { in: [UserRole.OPS_MANAGER, UserRole.ADMIN] } },
+          select: { id: true },
+        });
+        creatorId = anyStaff?.id || opsUserId;
+      }
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const inquiry = await tx.inquiry.create({
+          data: {
+            followupId,
+            customerName: dto.customerName.trim(),
+            customerPhone: dto.customerPhone.trim(),
+            address: dto.address.trim(),
+            city: dto.city.trim(),
+            requestedKw: Number(dto.requestedKw) || 6.0,
+            meterPhase: dto.meterPhase || 'Single Phase',
+            isUrgent: dto.isUrgent ?? false,
+            currentStage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
+            assignedSalespersonId: assignedSalespersonId || null,
+            assignedAt: assignedSalespersonId ? new Date() : null,
+            quoteDueDays: assignedSalespersonId ? 3 : null,
           },
         });
-      }
-      if (sp) {
-        assignedSalespersonId = sp.id;
-      }
-    }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const inquiry = await tx.inquiry.create({
-        data: {
-          followupId,
-          customerName: dto.customerName,
-          customerPhone: dto.customerPhone,
-          address: dto.address,
-          city: dto.city,
-          requestedKw: dto.requestedKw,
-          meterPhase: dto.meterPhase,
+        // Automatically create initial audit follow-up log
+        await tx.followupLog.create({
+          data: {
+            inquiryId: inquiry.id,
+            createdById: creatorId,
+            stage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
+            status: FollowupStatus.CALL_DONE,
+            description: assignedSalespersonId
+              ? `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city} and assigned to salesperson.`
+              : `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city}.`,
+            nextStep: assignedSalespersonId ? 'Visit terrace or send quotation' : 'Assign salesperson',
+            committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // Next day
+          },
+        });
+
+        return inquiry;
+      });
+
+      if (assignedSalespersonId) {
+        this.fcmService.sendToUser({
+          userId: assignedSalespersonId,
+          title: dto.isUrgent ? 'URGENT Lead Assigned' : 'New Lead Assigned',
+          body: `Lead ${dto.customerName} (${dto.requestedKw} kW · ${dto.city}) has been assigned to you.`,
+          targetUrl: `/inquiries/${followupId}`,
           isUrgent: dto.isUrgent ?? false,
-          currentStage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
-          assignedSalespersonId: assignedSalespersonId || null,
-          assignedAt: assignedSalespersonId ? new Date() : null,
-          quoteDueDays: assignedSalespersonId ? 3 : null,
-        },
-      });
+        }).catch((err) => {
+          console.warn('[FCM] Notification dispatch skipped:', err?.message || err);
+        });
+      }
 
-      // Automatically create initial audit follow-up log
-      await tx.followupLog.create({
-        data: {
-          inquiryId: inquiry.id,
-          createdById: opsUserId,
-          stage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
-          status: FollowupStatus.CALL_DONE,
-          description: assignedSalespersonId
-            ? `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city} and assigned to salesperson.`
-            : `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city}.`,
-          nextStep: assignedSalespersonId ? 'Visit terrace or send quotation' : 'Assign salesperson',
-          committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // Next day
-        },
-      });
-
-      return inquiry;
-    });
-
-    if (assignedSalespersonId) {
-      await this.fcmService.sendToUser({
-        userId: assignedSalespersonId,
-        title: dto.isUrgent ? 'URGENT Lead Assigned' : 'New Lead Assigned',
-        body: `Lead ${dto.customerName} (${dto.requestedKw} kW · ${dto.city}) has been assigned to you.`,
-        targetUrl: `/inquiries/${followupId}`,
-        isUrgent: dto.isUrgent ?? false,
-      });
+      return result;
+    } catch (err: any) {
+      console.error('[InquiriesService.create] Error:', err);
+      throw new BadRequestException(err?.message || 'Failed to create inquiry');
     }
-
-    return result;
   }
 
   async getSalespersons() {
