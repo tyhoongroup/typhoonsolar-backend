@@ -207,5 +207,31 @@ export class PortalService {
 
     return app;
   }
+
+  async markDocsUploaded(inquiryId: string, portalUserId: string) {
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: { OR: [{ id: inquiryId }, { followupId: inquiryId }] },
+    });
+    if (!inquiry) throw new NotFoundException('Inquiry not found.');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.inquiry.update({
+        where: { id: inquiry.id },
+        data: { currentStage: ProjectStage.GOVT_DOCS_SUBMITTED },
+      });
+
+      return tx.followupLog.create({
+        data: {
+          inquiryId: inquiry.id,
+          createdById: portalUserId,
+          stage: ProjectStage.GOVT_DOCS_SUBMITTED,
+          status: FollowupStatus.DONE,
+          description: 'Customer KYC documents uploaded on Government Surya Gujarat portal.',
+          nextStep: 'Awaiting DISCOM SR number generation',
+          committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        },
+      });
+    });
+  }
 }
 

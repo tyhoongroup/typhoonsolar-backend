@@ -152,5 +152,24 @@ export class MaterialsService {
       whatsappUrl,
     };
   }
+
+  async verifyInstallation(inquiryId: string, userId: string) {
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: { OR: [{ id: inquiryId }, { followupId: inquiryId }] },
+    });
+    if (!inquiry) throw new NotFoundException('Inquiry not found.');
+
+    return this.prisma.followupLog.create({
+      data: {
+        inquiryId: inquiry.id,
+        createdById: userId,
+        stage: ProjectStage.INSTALLATION_DONE,
+        status: FollowupStatus.DONE,
+        description: 'Installation roof photos verified by Material Planning & Warehouse lead. Quality check passed.',
+        nextStep: 'Ready for meter filing with DISCOM',
+        committedDate: new Date(),
+      },
+    });
+  }
 }
 

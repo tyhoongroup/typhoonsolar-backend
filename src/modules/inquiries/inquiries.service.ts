@@ -10,8 +10,9 @@ import {
   InquiryFilterDto,
   UploadDocumentsDto,
   DocumentQueryDto,
+  UpdateInquiryDto,
 } from './dto/inquiry.dto';
-import { ProjectStage, UserRole, FollowupStatus } from '@prisma/client';
+import { ProjectStage, UserRole, FollowupStatus, PaymentMilestoneType, PaymentStatus } from '@prisma/client';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -626,6 +627,56 @@ export class InquiriesService {
         }
       }
 
+      // Save milestone payment terms if provided or generate default milestones
+      if (dto.milestones && dto.milestones.length > 0) {
+        for (const m of dto.milestones) {
+          let mType: PaymentMilestoneType = PaymentMilestoneType.MATERIAL_UNLOAD;
+          const lower = (m.title + ' ' + (m.actionTrigger || '')).toLowerCase();
+          if (lower.includes('booking') || lower.includes('token') || lower.includes('advance')) {
+            mType = PaymentMilestoneType.BOOKING_ADVANCE;
+          } else if (lower.includes('subsidy') || lower.includes('dbt')) {
+            mType = PaymentMilestoneType.SUBSIDY_SETTLEMENT;
+          } else if (lower.includes('meter') || lower.includes('commissioning')) {
+            mType = PaymentMilestoneType.INSTALLATION_METER;
+          }
+
+          await tx.paymentMilestone.create({
+            data: {
+              inquiryId: realId,
+              milestoneType: mType,
+              title: m.title,
+              amount: m.amount,
+              status: PaymentStatus.PENDING,
+              dueDate: m.dueDate ? new Date(m.dueDate) : undefined,
+            },
+          });
+        }
+      } else {
+        const firstAmount = Math.round(Number(dto.dealAmount) * 0.8);
+        const secondAmount = Number(dto.dealAmount) - firstAmount;
+
+        await tx.paymentMilestone.createMany({
+          data: [
+            {
+              inquiryId: realId,
+              milestoneType: PaymentMilestoneType.MATERIAL_UNLOAD,
+              title: '80% Material Unload Milestone',
+              amount: firstAmount,
+              status: PaymentStatus.DUE,
+              dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+            },
+            {
+              inquiryId: realId,
+              milestoneType: PaymentMilestoneType.INSTALLATION_METER,
+              title: '20% Net Meter Live Settlement',
+              amount: secondAmount,
+              status: PaymentStatus.PENDING,
+              dueDate: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
+            },
+          ],
+        });
+      }
+
       await tx.followupLog.create({
         data: {
           inquiryId: realId,
@@ -753,6 +804,29 @@ export class InquiriesService {
     }
 
     return { success: true, queryDesc };
+  }
+
+  async update(inquiryId: string, dto: UpdateInquiryDto, userId: string) {
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(inquiryId),
+    });
+    if (!inquiry) throw new NotFoundException('Inquiry not found.');
+
+    const data: any = {};
+    if (dto.customerName) data.customerName = dto.customerName;
+    if (dto.customerPhone) data.customerPhone = dto.customerPhone;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.address) data.address = dto.address;
+    if (dto.city) data.city = dto.city;
+    if (dto.pincode) data.pincode = dto.pincode;
+    if (dto.requestedKw !== undefined) data.requestedKw = dto.requestedKw;
+    if (dto.meterPhase) data.meterPhase = dto.meterPhase;
+    if (dto.isUrgent !== undefined) data.isUrgent = dto.isUrgent;
+
+    return this.prisma.inquiry.update({
+      where: { id: inquiry.id },
+      data,
+    });
   }
 }
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { PortalService } from './portal.service';
 import { SubmitSrNumberDto, UpdateMeterDatesDto, UpdateSubsidyDto } from './dto/portal.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -16,6 +16,12 @@ export class PortalController {
   @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.PORTAL_USER)
   async getApplications() {
     return this.portalService.getApplications();
+  }
+
+  @Patch(':id/docs-uploaded')
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.PORTAL_USER)
+  async markDocsUploaded(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.portalService.markDocsUploaded(id, userId);
   }
 
   @Patch('sr-number')

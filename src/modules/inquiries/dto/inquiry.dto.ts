@@ -97,6 +97,52 @@ export class CloseDealDto {
 
   @IsOptional()
   documentPaths?: { docType: string; filePath: string }[];
+
+  @IsOptional()
+  milestones?: {
+    title: string;
+    amount: number;
+    actionTrigger?: string;
+    dueDate?: string;
+  }[];
+}
+
+export class UpdateInquiryDto {
+  @IsOptional()
+  @IsString()
+  customerName?: string;
+
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  pincode?: string;
+
+  @IsOptional()
+  @IsNumber()
+  requestedKw?: number;
+
+  @IsOptional()
+  @IsString()
+  meterPhase?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isUrgent?: boolean;
 }
 
 export class InquiryFilterDto {

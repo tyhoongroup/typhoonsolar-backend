@@ -9,6 +9,7 @@ import {
   InquiryFilterDto,
   UploadDocumentsDto,
   DocumentQueryDto,
+  UpdateInquiryDto,
 } from './dto/inquiry.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -50,6 +51,16 @@ export class InquiriesController {
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.inquiriesService.findOne(id);
+  }
+
+  @Patch(':id')
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER)
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateInquiryDto,
+    @CurrentUser('id') opsUserId: string,
+  ) {
+    return this.inquiriesService.update(id, dto, opsUserId);
   }
 
   @Patch(':id/assign')

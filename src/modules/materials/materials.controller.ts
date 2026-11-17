@@ -30,6 +30,12 @@ export class MaterialsController {
     return this.materialsService.uploadUnloadProof(dto, userId);
   }
 
+  @Post(':id/verify-install')
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.MATERIAL_MANAGER)
+  async verifyInstallation(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.materialsService.verifyInstallation(id, userId);
+  }
+
   @Get('whatsapp-preview/:id')
   @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.MATERIAL_MANAGER)
   async getWhatsAppPreview(@Param('id') id: string) {
