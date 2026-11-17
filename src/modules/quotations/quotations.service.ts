@@ -2,7 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CalculateQuotationDto, SaveQuotationDto } from './dto/quotation.dto';
 import { SolarCalculator } from '../../shared';
-import { ProjectStage, FollowupStatus } from '@prisma/client';
+import { ProjectStage, FollowupStatus, UserRole } from '@prisma/client';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class QuotationsService {
@@ -28,10 +30,21 @@ export class QuotationsService {
   }
 
   async save(dto: SaveQuotationDto, userId: string) {
-    const inquiry = await this.prisma.inquiry.findUnique({
-      where: { id: dto.inquiryId },
+    const isUuid = UUID_REGEX.test(dto.inquiryId);
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: isUuid ? { id: dto.inquiryId } : { followupId: dto.inquiryId },
     });
     if (!inquiry) throw new NotFoundException('Inquiry not found.');
+    const realId = inquiry.id;
+
+    let creatorId = userId;
+    if (!userId || !UUID_REGEX.test(userId)) {
+      const anyStaff = await this.prisma.user.findFirst({
+        where: { role: { in: [UserRole.SALESPERSON, UserRole.OPS_MANAGER, UserRole.ADMIN] } },
+        select: { id: true },
+      });
+      creatorId = anyStaff?.id || inquiry.assignedSalespersonId || realId;
+    }
 
     const calc = SolarCalculator.calculate({
       panelWattage: dto.panelWattage,
@@ -46,7 +59,7 @@ export class QuotationsService {
 
     return this.prisma.$transaction(async (tx) => {
       const quotation = await tx.quotation.upsert({
-        where: { inquiryId: dto.inquiryId },
+        where: { inquiryId: realId },
         update: {
           panelBrand: dto.panelBrand,
           panelTech: dto.panelTech,
@@ -68,7 +81,7 @@ export class QuotationsService {
         },
         create: {
           quotationNo,
-          inquiryId: dto.inquiryId,
+          inquiryId: realId,
           panelBrand: dto.panelBrand,
           panelTech: dto.panelTech,
           panelWattage: dto.panelWattage,
@@ -91,18 +104,18 @@ export class QuotationsService {
 
       await tx.followupLog.create({
         data: {
-          inquiryId: dto.inquiryId,
-          createdById: userId,
+          inquiryId: realId,
+          createdById: creatorId,
           stage: ProjectStage.QUOTATION_SENT,
           status: FollowupStatus.DONE,
           description: `Quotation ${quotationNo} generated for ${calc.plantCapacityKw} kW at net ₹${calc.netCustomerCost.toLocaleString('en-IN')}.`,
-          nextStep: 'Send quotation & follow up',
+          nextStep: 'Send quotation on WhatsApp & follow up',
           committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         },
       });
 
       await tx.inquiry.update({
-        where: { id: dto.inquiryId },
+        where: { id: realId },
         data: { currentStage: ProjectStage.QUOTATION_SENT },
       });
 
@@ -111,8 +124,11 @@ export class QuotationsService {
   }
 
   async findByInquiry(inquiryId: string) {
+    const isUuid = UUID_REGEX.test(inquiryId);
     const quote = await this.prisma.quotation.findFirst({
-      where: { OR: [{ inquiryId }, { id: inquiryId }, { quotationNo: inquiryId }] },
+      where: isUuid
+        ? { OR: [{ inquiryId }, { id: inquiryId }] }
+        : { OR: [{ quotationNo: inquiryId }, { inquiry: { followupId: inquiryId } }] },
       include: { inquiry: true },
     });
     if (!quote) throw new NotFoundException('Quotation not found.');
