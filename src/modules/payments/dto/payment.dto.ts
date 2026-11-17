@@ -2,8 +2,16 @@ import { IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID } from 'class-valida
 
 export class RecordPaymentDto {
   @IsUUID()
-  @IsNotEmpty()
-  milestoneId: string;
+  @IsOptional()
+  milestoneId?: string;
+
+  @IsString()
+  @IsOptional()
+  inquiryId?: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
 
   @IsNumber()
   @IsNotEmpty()
@@ -11,6 +19,9 @@ export class RecordPaymentDto {
 
   @IsString()
   @IsOptional()
+  paymentMode?: string;
+
+  @IsString()
+  @IsOptional()
   transactionRef?: string;
 }
-

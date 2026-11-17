@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { FcmNotificationService } from '../notifications/fcm.service';
 import { RecordPaymentDto } from './dto/payment.dto';
-import { PaymentStatus, FollowupStatus, ProjectStage, UserRole } from '@prisma/client';
+import { PaymentStatus, FollowupStatus, ProjectStage, UserRole, PaymentMilestoneType } from '@prisma/client';
 import { WhatsAppTemplates } from '../../shared';
 
 @Injectable()
@@ -96,8 +96,52 @@ export class PaymentsService {
 
   async recordPayment(dto: RecordPaymentDto, accountantUserId: string) {
     const milestone = await this.prisma.$transaction(async (tx) => {
+      let targetMilestone: any = null;
+
+      if (dto.milestoneId) {
+        targetMilestone = await tx.paymentMilestone.findUnique({
+          where: { id: dto.milestoneId },
+          include: { inquiry: true },
+        });
+      }
+
+      if (!targetMilestone && dto.inquiryId) {
+        const inq = await tx.inquiry.findFirst({
+          where: { OR: [{ id: dto.inquiryId }, { followupId: dto.inquiryId }] },
+          include: { payments: true },
+        });
+        if (!inq) {
+          throw new NotFoundException(`Inquiry ${dto.inquiryId} not found.`);
+        }
+
+        const pending = inq.payments.find((p) => p.status !== PaymentStatus.PAID);
+        if (pending) {
+          targetMilestone = await tx.paymentMilestone.findUnique({
+            where: { id: pending.id },
+            include: { inquiry: true },
+          });
+        } else {
+          targetMilestone = await tx.paymentMilestone.create({
+            data: {
+              inquiryId: inq.id,
+              milestoneType: PaymentMilestoneType.MATERIAL_UNLOAD,
+              title: dto.title || 'Payment Receipt',
+              amount: dto.amount,
+              status: PaymentStatus.PAID,
+              paidAt: new Date(),
+              transactionRef: dto.transactionRef,
+            },
+            include: { inquiry: true },
+          });
+        }
+      }
+
+      if (!targetMilestone) {
+        throw new NotFoundException('Milestone or target inquiry not found.');
+      }
+
       const savedMilestone = await tx.paymentMilestone.update({
-        where: { id: dto.milestoneId },
+        where: { id: targetMilestone.id },
         data: {
           status: PaymentStatus.PAID,
           paidAt: new Date(),

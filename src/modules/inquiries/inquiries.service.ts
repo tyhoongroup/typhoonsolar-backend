@@ -343,10 +343,13 @@ export class InquiriesService {
     });
   }
 
-  async getAllFollowups(query: { teamMemberId?: string; type?: string; inquiryId?: string }) {
+  async getAllFollowups(query: { teamMemberId?: string; type?: string; inquiryId?: string; stage?: string }) {
     const where: any = {};
     if (query.teamMemberId && query.teamMemberId !== 'all') {
       where.createdById = query.teamMemberId;
+    }
+    if (query.stage && query.stage !== 'all') {
+      where.stage = query.stage as ProjectStage;
     }
     if (query.inquiryId) {
       where.inquiry = { OR: [{ id: query.inquiryId }, { followupId: query.inquiryId }] };
