@@ -1,6 +1,15 @@
 import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { InquiriesService } from './inquiries.service';
-import { CreateInquiryDto, AssignSalespersonDto, SiteVisitReportDto, CloseDealDto, InquiryFilterDto, UploadDocumentsDto, DocumentQueryDto } from './dto/inquiry.dto';
+import {
+  CreateInquiryDto,
+  AssignSalespersonDto,
+  LogCallDto,
+  SiteVisitReportDto,
+  CloseDealDto,
+  InquiryFilterDto,
+  UploadDocumentsDto,
+  DocumentQueryDto,
+} from './dto/inquiry.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -33,6 +42,11 @@ export class InquiriesController {
     return this.inquiriesService.getMyNotifications(user);
   }
 
+  @Get('followups/all')
+  async getAllFollowups(@Query() query: any) {
+    return this.inquiriesService.getAllFollowups(query);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.inquiriesService.findOne(id);
@@ -46,6 +60,16 @@ export class InquiriesController {
     @CurrentUser('id') opsUserId: string,
   ) {
     return this.inquiriesService.assignSalesperson(id, dto, opsUserId);
+  }
+
+  @Post(':id/log-call')
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.SALESPERSON)
+  async logCall(
+    @Param('id') id: string,
+    @Body() dto: LogCallDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.inquiriesService.logCall(id, dto, userId);
   }
 
   @Post(':id/site-visit')

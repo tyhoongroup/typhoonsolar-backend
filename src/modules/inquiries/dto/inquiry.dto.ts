@@ -12,8 +12,20 @@ export class CreateInquiryDto {
   customerPhone: string;
 
   @IsString()
+  @IsOptional()
+  email?: string;
+
+  @IsString()
   @IsNotEmpty()
   address: string;
+
+  @IsString()
+  @IsOptional()
+  pincode?: string;
+
+  @IsString()
+  @IsOptional()
+  state?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -45,6 +57,24 @@ export class AssignSalespersonDto {
   dueDays?: number;
 }
 
+export class LogCallDto {
+  @IsString()
+  @IsNotEmpty()
+  callResult: string; // 'CALL_DONE' or 'NOT_REACHABLE'
+
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+
+  @IsString()
+  @IsOptional()
+  nextStep?: string;
+
+  @IsString()
+  @IsOptional()
+  nextFollowupDate?: string;
+}
+
 export class SiteVisitReportDto {
   @IsBoolean()
   roofAreaChecked: boolean;
@@ -65,7 +95,6 @@ export class CloseDealDto {
   @IsNotEmpty()
   dealAmount: number;
 
-  @IsString({ each: true })
   @IsOptional()
   documentPaths?: { docType: string; filePath: string }[];
 }
@@ -82,6 +111,14 @@ export class InquiryFilterDto {
   @IsOptional()
   @IsString()
   statusFilter?: 'ALL' | 'NEW' | 'FOLLOWUP' | 'QUOTATION' | 'NEGOTIATION' | 'CLOSED';
+
+  @IsOptional()
+  @IsString()
+  type?: 'inquiry' | 'project' | 'all';
+
+  @IsOptional()
+  @IsString()
+  salespersonId?: string;
 }
 
 export class UploadDocumentItemDto {
@@ -108,4 +145,5 @@ export class DocumentQueryDto {
   @IsNotEmpty()
   queryNotes: string;
 }
+
 

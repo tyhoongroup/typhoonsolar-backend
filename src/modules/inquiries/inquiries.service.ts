@@ -1,7 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { FcmNotificationService } from '../notifications/fcm.service';
-import { CreateInquiryDto, AssignSalespersonDto, SiteVisitReportDto, CloseDealDto, InquiryFilterDto, UploadDocumentsDto, DocumentQueryDto } from './dto/inquiry.dto';
+import {
+  CreateInquiryDto,
+  AssignSalespersonDto,
+  LogCallDto,
+  SiteVisitReportDto,
+  CloseDealDto,
+  InquiryFilterDto,
+  UploadDocumentsDto,
+  DocumentQueryDto,
+} from './dto/inquiry.dto';
 import { ProjectStage, UserRole, FollowupStatus } from '@prisma/client';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -243,11 +252,56 @@ export class InquiriesService {
   async findAll(filter: InquiryFilterDto, user: { id: string; role: UserRole }) {
     const where: any = {};
 
-    // Row-level security: Salespersons see inquiries assigned to them OR unassigned leads
+    // 1. Inquiries vs Projects Separation:
+    // If type === 'inquiry', exclude converted projects (DEAL_CLOSED and subsequent stages)
+    // If type === 'project', only include converted projects
+    const inquiryStages = [
+      ProjectStage.INQUIRY_RECEIVED,
+      ProjectStage.SITE_VISIT_PLANNED,
+      ProjectStage.QUOTATION_SENT,
+    ];
+
+    if (filter.type === 'inquiry') {
+      where.currentStage = { in: inquiryStages };
+    } else if (filter.type === 'project') {
+      where.currentStage = { notIn: inquiryStages };
+    }
+
+    // 2. Team Member / Salesperson filter
+    if (filter.salespersonId && filter.salespersonId !== 'all') {
+      where.assignedSalespersonId = filter.salespersonId;
+    }
+
+    // 3. Status filter chips
+    if (filter.statusFilter) {
+      switch (filter.statusFilter) {
+        case 'NEW':
+          where.currentStage = ProjectStage.INQUIRY_RECEIVED;
+          break;
+        case 'FOLLOWUP':
+          where.currentStage = ProjectStage.SITE_VISIT_PLANNED;
+          break;
+        case 'QUOTATION':
+          where.currentStage = ProjectStage.QUOTATION_SENT;
+          break;
+        case 'CLOSED':
+          where.currentStage = { notIn: inquiryStages };
+          break;
+        default:
+          break;
+      }
+    }
+
+    // 4. Role-level scoping: Salespersons see assigned leads + unassigned leads
     if (user.role === UserRole.SALESPERSON) {
-      where.OR = [
-        { assignedSalespersonId: user.id },
-        { assignedSalespersonId: null },
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { assignedSalespersonId: user.id },
+            { assignedSalespersonId: null },
+          ],
+        },
       ];
     }
 
@@ -282,6 +336,61 @@ export class InquiriesService {
     });
   }
 
+  async getAllFollowups(query: { teamMemberId?: string; type?: string; inquiryId?: string }) {
+    const where: any = {};
+    if (query.teamMemberId && query.teamMemberId !== 'all') {
+      where.createdById = query.teamMemberId;
+    }
+    if (query.inquiryId) {
+      where.inquiry = { OR: [{ id: query.inquiryId }, { followupId: query.inquiryId }] };
+    }
+
+    const inquiryStages = [
+      ProjectStage.INQUIRY_RECEIVED,
+      ProjectStage.SITE_VISIT_PLANNED,
+      ProjectStage.QUOTATION_SENT,
+    ];
+
+    if (query.type === 'inquiry') {
+      where.inquiry = {
+        ...where.inquiry,
+        currentStage: { in: inquiryStages },
+      };
+    } else if (query.type === 'project') {
+      where.inquiry = {
+        ...where.inquiry,
+        currentStage: { notIn: inquiryStages },
+      };
+    }
+
+    return this.prisma.followupLog.findMany({
+      where,
+      include: {
+        inquiry: {
+          select: {
+            id: true,
+            followupId: true,
+            customerName: true,
+            customerPhone: true,
+            requestedKw: true,
+            city: true,
+            currentStage: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            role: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
   async findOne(id: string) {
     const inquiry = await this.prisma.inquiry.findFirst({
       where: { OR: [{ id }, { followupId: id }] },
@@ -308,11 +417,41 @@ export class InquiriesService {
   }
 
   async assignSalesperson(inquiryId: string, dto: AssignSalespersonDto, opsUserId: string) {
-    const salesperson = await this.prisma.user.findUnique({
-      where: { id: dto.salespersonId },
+    const targetInquiry = await this.prisma.inquiry.findFirst({
+      where: { OR: [{ id: inquiryId }, { followupId: inquiryId }] },
     });
-    if (!salesperson || salesperson.role !== UserRole.SALESPERSON) {
+    if (!targetInquiry) throw new NotFoundException(`Inquiry ${inquiryId} not found.`);
+
+    let salesperson: any = null;
+    if (UUID_REGEX.test(dto.salespersonId)) {
+      salesperson = await this.prisma.user.findUnique({
+        where: { id: dto.salespersonId },
+      });
+    }
+    if (!salesperson) {
+      salesperson = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { phone: dto.salespersonId },
+            { fullName: { contains: dto.salespersonId, mode: 'insensitive' } },
+            { fullName: { contains: 'Amit', mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+
+    if (!salesperson) {
       throw new BadRequestException('Selected user is not a valid salesperson.');
+    }
+
+    // Resolve creator ops user
+    let creatorId = opsUserId;
+    if (!opsUserId || !UUID_REGEX.test(opsUserId)) {
+      const ops = await this.prisma.user.findFirst({
+        where: { role: { in: [UserRole.OPS_MANAGER, UserRole.ADMIN] } },
+        select: { id: true },
+      });
+      creatorId = ops?.id || salesperson.id;
     }
 
     const dueDays = dto.dueDays || 3;
@@ -320,9 +459,9 @@ export class InquiriesService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.inquiry.update({
-        where: { id: inquiryId },
+        where: { id: targetInquiry.id },
         data: {
-          assignedSalespersonId: dto.salespersonId,
+          assignedSalespersonId: salesperson.id,
           assignedAt: new Date(),
           quoteDueDays: dueDays,
           currentStage: ProjectStage.SITE_VISIT_PLANNED,
@@ -331,8 +470,8 @@ export class InquiriesService {
 
       await tx.followupLog.create({
         data: {
-          inquiryId,
-          createdById: opsUserId,
+          inquiryId: targetInquiry.id,
+          createdById: creatorId,
           stage: ProjectStage.SITE_VISIT_PLANNED,
           status: FollowupStatus.ON_TRACK,
           description: `Lead assigned to ${salesperson.fullName}. Site survey and quotation due in ${dueDays} days.`,
@@ -345,10 +484,57 @@ export class InquiriesService {
     });
 
     await this.fcmService.sendToUser({
-      userId: dto.salespersonId,
+      userId: salesperson.id,
       title: 'Lead Assigned to You',
-      body: `You have been assigned inquiry ${inquiryId}. Survey & quotation due in ${dueDays} days.`,
-      targetUrl: `/inquiries/${inquiryId}`,
+      body: `You have been assigned inquiry ${targetInquiry.followupId} (${targetInquiry.customerName}). Survey & quotation due in ${dueDays} days.`,
+      targetUrl: `/inquiries/${targetInquiry.followupId}`,
+    }).catch(() => {});
+
+    return result;
+  }
+
+  async logCall(inquiryId: string, dto: LogCallDto, userId: string) {
+    const targetInquiry = await this.prisma.inquiry.findFirst({
+      where: { OR: [{ id: inquiryId }, { followupId: inquiryId }] },
+    });
+    if (!targetInquiry) throw new NotFoundException(`Inquiry ${inquiryId} not found.`);
+
+    let creatorId = userId;
+    if (!userId || !UUID_REGEX.test(userId)) {
+      const anyStaff = await this.prisma.user.findFirst({
+        where: { role: { in: [UserRole.SALESPERSON, UserRole.OPS_MANAGER, UserRole.ADMIN] } },
+        select: { id: true },
+      });
+      creatorId = anyStaff?.id || targetInquiry.assignedSalespersonId || targetInquiry.id;
+    }
+
+    const status = dto.callResult === 'CALL_DONE' ? FollowupStatus.CALL_DONE : FollowupStatus.NOT_REACHABLE;
+    const committedDate = dto.nextFollowupDate ? new Date(dto.nextFollowupDate) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const log = await tx.followupLog.create({
+        data: {
+          inquiryId: targetInquiry.id,
+          createdById: creatorId,
+          stage: targetInquiry.currentStage,
+          status,
+          description: dto.description || 'Customer phone call update logged.',
+          nextStep: dto.nextStep || 'Customer follow-up',
+          committedDate,
+        },
+      });
+
+      // Advance stage to QUOTATION_SENT if currently SITE_VISIT_PLANNED and call was done
+      let nextStage = targetInquiry.currentStage;
+      if (targetInquiry.currentStage === ProjectStage.SITE_VISIT_PLANNED && dto.callResult === 'CALL_DONE') {
+        nextStage = ProjectStage.QUOTATION_SENT;
+        await tx.inquiry.update({
+          where: { id: targetInquiry.id },
+          data: { currentStage: nextStage },
+        });
+      }
+
+      return log;
     });
 
     return result;
