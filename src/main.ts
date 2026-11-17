@@ -21,12 +21,34 @@ async function bootstrap() {
   app.use(cookieParser());
 
   // 3. CORS Configuration
+  const allowedOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:3000',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3050',
+    'https://staging.typhoongroup.co.in',
+    'http://staging.typhoongroup.co.in',
+    'https://api.typhoongroup.co.in',
+    'http://api.typhoongroup.co.in',
+    'https://typhoonsolar.com',
+  ];
+
   app.enableCors({
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-      'http://localhost:3001',
-      'https://typhoonsolar.com',
-    ],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      try {
+        const hostname = new URL(origin).hostname;
+        if (
+          allowedOrigins.includes(origin) ||
+          hostname.endsWith('typhoongroup.co.in') ||
+          hostname === 'localhost' ||
+          hostname === '187.127.158.90'
+        ) {
+          return callback(null, true);
+        }
+      } catch {}
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
