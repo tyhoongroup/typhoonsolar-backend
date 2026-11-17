@@ -20,7 +20,7 @@ export class InquiriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fcmService: FcmNotificationService,
-  ) {}
+  ) { }
 
   private async generateNextFollowupId(): Promise<string> {
     try {
@@ -39,6 +39,13 @@ export class InquiriesService {
     } catch {
       return `F-${Date.now().toString().slice(-4)}`;
     }
+  }
+
+  private getInquiryWhere(idOrFollowupId: string) {
+    if (!idOrFollowupId) return { followupId: '__none__' };
+    return UUID_REGEX.test(idOrFollowupId)
+      ? { OR: [{ id: idOrFollowupId }, { followupId: idOrFollowupId }] }
+      : { followupId: idOrFollowupId };
   }
 
   async create(dto: CreateInquiryDto, opsUserId: string) {
@@ -393,7 +400,7 @@ export class InquiriesService {
 
   async findOne(id: string) {
     const inquiry = await this.prisma.inquiry.findFirst({
-      where: { OR: [{ id }, { followupId: id }] },
+      where: this.getInquiryWhere(id),
       include: {
         assignedSalesperson: true,
         followups: {
@@ -418,7 +425,7 @@ export class InquiriesService {
 
   async assignSalesperson(inquiryId: string, dto: AssignSalespersonDto, opsUserId: string) {
     const targetInquiry = await this.prisma.inquiry.findFirst({
-      where: { OR: [{ id: inquiryId }, { followupId: inquiryId }] },
+      where: this.getInquiryWhere(inquiryId),
     });
     if (!targetInquiry) throw new NotFoundException(`Inquiry ${inquiryId} not found.`);
 
@@ -488,14 +495,14 @@ export class InquiriesService {
       title: 'Lead Assigned to You',
       body: `You have been assigned inquiry ${targetInquiry.followupId} (${targetInquiry.customerName}). Survey & quotation due in ${dueDays} days.`,
       targetUrl: `/inquiries/${targetInquiry.followupId}`,
-    }).catch(() => {});
+    }).catch(() => { });
 
     return result;
   }
 
   async logCall(inquiryId: string, dto: LogCallDto, userId: string) {
     const targetInquiry = await this.prisma.inquiry.findFirst({
-      where: { OR: [{ id: inquiryId }, { followupId: inquiryId }] },
+      where: this.getInquiryWhere(inquiryId),
     });
     if (!targetInquiry) throw new NotFoundException(`Inquiry ${inquiryId} not found.`);
 
@@ -541,9 +548,15 @@ export class InquiriesService {
   }
 
   async submitSiteVisit(inquiryId: string, dto: SiteVisitReportDto, salesUserId: string) {
+    const targetInquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(inquiryId),
+    });
+    if (!targetInquiry) throw new NotFoundException(`Inquiry ${inquiryId} not found.`);
+    const realId = targetInquiry.id;
+
     return this.prisma.$transaction(async (tx) => {
       const siteVisit = await tx.siteVisit.upsert({
-        where: { inquiryId },
+        where: { inquiryId: realId },
         update: {
           roofAreaChecked: dto.roofAreaChecked,
           meterWiringSeen: dto.meterWiringSeen,
@@ -551,7 +564,7 @@ export class InquiriesService {
           photos: dto.photos,
         },
         create: {
-          inquiryId,
+          inquiryId: realId,
           roofAreaChecked: dto.roofAreaChecked,
           meterWiringSeen: dto.meterWiringSeen,
           notes: dto.notes,
@@ -561,7 +574,7 @@ export class InquiriesService {
 
       await tx.followupLog.create({
         data: {
-          inquiryId,
+          inquiryId: realId,
           createdById: salesUserId,
           stage: ProjectStage.QUOTATION_SENT,
           status: FollowupStatus.DONE,
@@ -572,7 +585,7 @@ export class InquiriesService {
       });
 
       await tx.inquiry.update({
-        where: { id: inquiryId },
+        where: { id: realId },
         data: { currentStage: ProjectStage.QUOTATION_SENT },
       });
 
@@ -581,9 +594,15 @@ export class InquiriesService {
   }
 
   async closeDeal(inquiryId: string, dto: CloseDealDto, salesUserId: string) {
+    const targetInquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(inquiryId),
+    });
+    if (!targetInquiry) throw new NotFoundException(`Inquiry ${inquiryId} not found.`);
+    const realId = targetInquiry.id;
+
     const closedInquiry = await this.prisma.$transaction(async (tx) => {
       const inquiry = await tx.inquiry.update({
-        where: { id: inquiryId },
+        where: { id: realId },
         data: {
           dealAmount: dto.dealAmount,
           closedAt: new Date(),
@@ -596,7 +615,7 @@ export class InquiriesService {
         for (const doc of dto.documentPaths) {
           await tx.customerDocument.create({
             data: {
-              inquiryId,
+              inquiryId: realId,
               docType: doc.docType,
               filePath: doc.filePath,
             },
@@ -606,7 +625,7 @@ export class InquiriesService {
 
       await tx.followupLog.create({
         data: {
-          inquiryId,
+          inquiryId: realId,
           createdById: salesUserId,
           stage: ProjectStage.DEAL_CLOSED,
           status: FollowupStatus.DONE,
@@ -631,17 +650,18 @@ export class InquiriesService {
   }
 
   async uploadDocuments(inquiryId: string, dto: UploadDocumentsDto, userId: string) {
-    const inquiry = await this.prisma.inquiry.findUnique({
-      where: { id: inquiryId },
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(inquiryId),
     });
     if (!inquiry) throw new NotFoundException('Inquiry not found.');
+    const realId = inquiry.id;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       if (dto.documents && dto.documents.length > 0) {
         for (const doc of dto.documents) {
           await tx.customerDocument.create({
             data: {
-              inquiryId,
+              inquiryId: realId,
               docType: doc.docType,
               filePath: doc.filePath,
               isVerified: true,
@@ -651,13 +671,13 @@ export class InquiriesService {
       }
 
       await tx.inquiry.update({
-        where: { id: inquiryId },
+        where: { id: realId },
         data: { currentStage: ProjectStage.GOVT_DOCS_SUBMITTED },
       });
 
       await tx.followupLog.create({
         data: {
-          inquiryId,
+          inquiryId: realId,
           createdById: userId,
           stage: ProjectStage.GOVT_DOCS_SUBMITTED,
           status: FollowupStatus.DONE,
@@ -681,24 +701,25 @@ export class InquiriesService {
   }
 
   async flagDocumentQuery(inquiryId: string, dto: DocumentQueryDto, userId: string) {
-    const inquiry = await this.prisma.inquiry.findUnique({
-      where: { id: inquiryId },
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(inquiryId),
       include: { assignedSalesperson: true },
     });
     if (!inquiry) throw new NotFoundException('Inquiry not found.');
+    const realId = inquiry.id;
 
     const queryDesc = `${dto.docType}: ${dto.queryNotes}`;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.portalApplication.upsert({
-        where: { inquiryId },
+        where: { inquiryId: realId },
         update: {
           subsidyQueryNo: 'DOC_QUERY',
           subsidyQueryDesc: queryDesc,
           subsidyStatus: 'QUERY',
         },
         create: {
-          inquiryId,
+          inquiryId: realId,
           subsidyQueryNo: 'DOC_QUERY',
           subsidyQueryDesc: queryDesc,
           subsidyStatus: 'QUERY',
@@ -707,7 +728,7 @@ export class InquiriesService {
 
       await tx.followupLog.create({
         data: {
-          inquiryId,
+          inquiryId: realId,
           createdById: userId,
           stage: inquiry.currentStage,
           status: FollowupStatus.DELAYED,
