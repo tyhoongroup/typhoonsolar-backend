@@ -121,5 +121,25 @@ export class AuthService {
     });
     return { message: 'FCM push token registered.' };
   }
+
+  async updateProfile(userId: string, dto: { fullName?: string; phone?: string; email?: string }) {
+    const data: any = {};
+    if (dto.fullName && dto.fullName.trim()) data.fullName = dto.fullName.trim();
+    if (dto.phone && dto.phone.trim()) data.phone = dto.phone.trim();
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        role: true,
+        isActive: true,
+      },
+    });
+
+    return { message: 'Profile updated successfully.', user: updated };
+  }
 }
 

@@ -48,6 +48,15 @@ export class AuthController {
     return user;
   }
 
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  async updateProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: { fullName?: string; phone?: string; email?: string },
+  ) {
+    return this.authService.updateProfile(userId, dto);
+  }
+
   @Patch('change-password')
   @UseGuards(JwtAuthGuard)
   async changePassword(@CurrentUser('id') userId: string, @Body() dto: ChangePasswordDto) {
