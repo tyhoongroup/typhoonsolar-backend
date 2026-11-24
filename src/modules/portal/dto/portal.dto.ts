@@ -1,7 +1,7 @@
-import { IsNotEmpty, IsString, IsOptional, IsDateString, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsDateString } from 'class-validator';
 
 export class SubmitSrNumberDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   inquiryId: string;
 
@@ -11,7 +11,7 @@ export class SubmitSrNumberDto {
 }
 
 export class UpdateMeterDatesDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   inquiryId: string;
 
@@ -29,7 +29,7 @@ export class UpdateMeterDatesDto {
 }
 
 export class UpdateSubsidyDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   inquiryId: string;
 

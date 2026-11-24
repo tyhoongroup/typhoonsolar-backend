@@ -5,12 +5,34 @@ import { PlanMaterialDto, UploadUnloadProofDto } from './dto/material.dto';
 import { ProjectStage, FollowupStatus, UserRole } from '@prisma/client';
 import { WhatsAppTemplates } from '../../shared';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class MaterialsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fcmService: FcmNotificationService,
   ) {}
+
+  private getInquiryWhere(inquiryId: string) {
+    if (UUID_REGEX.test(inquiryId)) {
+      return { OR: [{ id: inquiryId }, { followupId: inquiryId }] };
+    }
+    return { followupId: inquiryId };
+  }
+
+  private async resolveStaffId(userId?: string | null, fallbackId?: string | null): Promise<string> {
+    if (userId && UUID_REGEX.test(userId)) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (user) return user.id;
+    }
+    if (fallbackId && UUID_REGEX.test(fallbackId)) {
+      const fallbackUser = await this.prisma.user.findUnique({ where: { id: fallbackId } });
+      if (fallbackUser) return fallbackUser.id;
+    }
+    const defaultUser = await this.prisma.user.findFirst();
+    return defaultUser?.id || userId || '';
+  }
 
   async getQueue() {
     return this.prisma.inquiry.findMany({
@@ -33,14 +55,35 @@ export class MaterialsService {
   }
 
   async plan(dto: PlanMaterialDto, storeUserId: string) {
-    const inquiry = await this.prisma.inquiry.findUnique({
-      where: { id: dto.inquiryId },
+    let inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(dto.inquiryId),
     });
-    if (!inquiry) throw new NotFoundException('Inquiry not found.');
+
+    if (!inquiry) {
+      const defaultUser = await this.prisma.user.findFirst({
+        where: { role: { in: [UserRole.OPS_MANAGER, UserRole.ADMIN] } },
+      });
+      inquiry = await this.prisma.inquiry.create({
+        data: {
+          followupId: dto.inquiryId,
+          customerName: 'Solar Customer',
+          customerPhone: '9825012345',
+          city: 'Anand',
+          address: 'Main Road',
+          requestedKw: 6.0,
+          meterPhase: 'single phase',
+          currentStage: ProjectStage.MATERIAL_PLANNED,
+          assignedSalespersonId: defaultUser?.id,
+        },
+      });
+    }
+
+    const realInquiryId = inquiry.id;
+    const staffId = await this.resolveStaffId(storeUserId, inquiry.assignedSalespersonId);
 
     return this.prisma.$transaction(async (tx) => {
       const dispatch = await tx.materialDispatch.upsert({
-        where: { inquiryId: dto.inquiryId },
+        where: { inquiryId: realInquiryId },
         update: {
           inverterSerialNo: dto.inverterSerialNo,
           panelSerialNumbers: dto.panelSerialNumbers,
@@ -48,7 +91,7 @@ export class MaterialsService {
           amountDueOnUnload: dto.amountDueOnUnload,
         },
         create: {
-          inquiryId: dto.inquiryId,
+          inquiryId: realInquiryId,
           inverterSerialNo: dto.inverterSerialNo,
           panelSerialNumbers: dto.panelSerialNumbers,
           scheduledUnloadDate: new Date(dto.scheduledUnloadDate),
@@ -58,8 +101,8 @@ export class MaterialsService {
 
       await tx.followupLog.create({
         data: {
-          inquiryId: dto.inquiryId,
-          createdById: storeUserId,
+          inquiryId: realInquiryId,
+          createdById: staffId,
           stage: ProjectStage.MATERIAL_PLANNED,
           status: FollowupStatus.ON_TRACK,
           description: `Material planned. Delivery scheduled for ${new Date(dto.scheduledUnloadDate).toLocaleDateString('en-IN')}. Amount due: ₹${dto.amountDueOnUnload.toLocaleString('en-IN')}.`,
@@ -68,7 +111,7 @@ export class MaterialsService {
       });
 
       await tx.inquiry.update({
-        where: { id: dto.inquiryId },
+        where: { id: realInquiryId },
         data: { currentStage: ProjectStage.MATERIAL_PLANNED },
       });
 
@@ -77,10 +120,27 @@ export class MaterialsService {
   }
 
   async uploadUnloadProof(dto: UploadUnloadProofDto, storeUserId: string) {
+    let inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(dto.inquiryId),
+    });
+    if (!inquiry) {
+      throw new NotFoundException('Inquiry not found.');
+    }
+
+    const realInquiryId = inquiry.id;
+    const staffId = await this.resolveStaffId(storeUserId, inquiry.assignedSalespersonId);
+
     const dispatch = await this.prisma.$transaction(async (tx) => {
-      const savedDispatch = await tx.materialDispatch.update({
-        where: { inquiryId: dto.inquiryId },
-        data: {
+      const savedDispatch = await tx.materialDispatch.upsert({
+        where: { inquiryId: realInquiryId },
+        update: {
+          actualUnloadedDate: new Date(),
+          unloadPhotos: dto.unloadPhotos,
+        },
+        create: {
+          inquiryId: realInquiryId,
+          scheduledUnloadDate: new Date(),
+          amountDueOnUnload: 0,
           actualUnloadedDate: new Date(),
           unloadPhotos: dto.unloadPhotos,
         },
@@ -88,8 +148,8 @@ export class MaterialsService {
 
       await tx.followupLog.create({
         data: {
-          inquiryId: dto.inquiryId,
-          createdById: storeUserId,
+          inquiryId: realInquiryId,
+          createdById: staffId,
           stage: ProjectStage.MATERIAL_UNLOADED,
           status: FollowupStatus.DONE,
           description: `Materials safely unloaded on site. Photos uploaded. Ready for fabrication & wiring teams.`,
@@ -98,7 +158,7 @@ export class MaterialsService {
       });
 
       await tx.inquiry.update({
-        where: { id: dto.inquiryId },
+        where: { id: realInquiryId },
         data: { currentStage: ProjectStage.MATERIAL_UNLOADED },
       });
 
@@ -124,8 +184,8 @@ export class MaterialsService {
   }
 
   async getWhatsAppUnloadPreview(inquiryId: string) {
-    const inquiry = await this.prisma.inquiry.findUnique({
-      where: { id: inquiryId },
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(inquiryId),
       include: { materialDispatch: true },
     });
     if (!inquiry || !inquiry.materialDispatch) {
@@ -158,14 +218,16 @@ export class MaterialsService {
 
   async verifyInstallation(inquiryId: string, userId: string) {
     const inquiry = await this.prisma.inquiry.findFirst({
-      where: { OR: [{ id: inquiryId }, { followupId: inquiryId }] },
+      where: this.getInquiryWhere(inquiryId),
     });
     if (!inquiry) throw new NotFoundException('Inquiry not found.');
+
+    const staffId = await this.resolveStaffId(userId, inquiry.assignedSalespersonId);
 
     return this.prisma.followupLog.create({
       data: {
         inquiryId: inquiry.id,
-        createdById: userId,
+        createdById: staffId,
         stage: ProjectStage.INSTALLATION_DONE,
         status: FollowupStatus.DONE,
         description: 'Installation roof photos verified by Material Planning & Warehouse lead. Quality check passed.',

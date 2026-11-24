@@ -1,7 +1,7 @@
-import { IsNotEmpty, IsString, IsNumber, IsOptional, IsDateString, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsString, IsNumber, IsOptional, IsDateString } from 'class-validator';
 
 export class PlanMaterialDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   inquiryId: string;
 
@@ -23,7 +23,7 @@ export class PlanMaterialDto {
 }
 
 export class UploadUnloadProofDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   inquiryId: string;
 

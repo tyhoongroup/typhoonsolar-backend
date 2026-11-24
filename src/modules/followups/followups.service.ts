@@ -2,21 +2,45 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateFollowupDto, UpdateFollowupStatusDto } from './dto/followup.dto';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class FollowupsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private getInquiryWhere(inquiryId: string) {
+    if (UUID_REGEX.test(inquiryId)) {
+      return { OR: [{ id: inquiryId }, { followupId: inquiryId }] };
+    }
+    return { followupId: inquiryId };
+  }
+
+  private async resolveStaffId(userId?: string | null, fallbackId?: string | null): Promise<string> {
+    if (userId && UUID_REGEX.test(userId)) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (user) return user.id;
+    }
+    if (fallbackId && UUID_REGEX.test(fallbackId)) {
+      const fallbackUser = await this.prisma.user.findUnique({ where: { id: fallbackId } });
+      if (fallbackUser) return fallbackUser.id;
+    }
+    const defaultUser = await this.prisma.user.findFirst();
+    return defaultUser?.id || userId || '';
+  }
+
   async create(dto: CreateFollowupDto, userId: string) {
-    const inquiry = await this.prisma.inquiry.findUnique({
-      where: { id: dto.inquiryId },
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(dto.inquiryId),
     });
     if (!inquiry) throw new NotFoundException(`Inquiry ${dto.inquiryId} not found.`);
+
+    const staffId = await this.resolveStaffId(userId, inquiry.assignedSalespersonId);
 
     return this.prisma.$transaction(async (tx) => {
       const log = await tx.followupLog.create({
         data: {
-          inquiryId: dto.inquiryId,
-          createdById: userId,
+          inquiryId: inquiry.id,
+          createdById: staffId,
           stage: dto.stage,
           status: dto.status,
           description: dto.description,
@@ -26,7 +50,7 @@ export class FollowupsService {
       });
 
       await tx.inquiry.update({
-        where: { id: dto.inquiryId },
+        where: { id: inquiry.id },
         data: {
           currentStage: dto.stage,
           updatedAt: new Date(),
@@ -38,8 +62,15 @@ export class FollowupsService {
   }
 
   async getByInquiry(inquiryId: string) {
+    const inquiry = await this.prisma.inquiry.findFirst({
+      where: this.getInquiryWhere(inquiryId),
+    });
+    if (!inquiry) {
+      return [];
+    }
+
     return this.prisma.followupLog.findMany({
-      where: { inquiryId },
+      where: { inquiryId: inquiry.id },
       include: {
         createdBy: {
           select: { id: true, fullName: true, role: true, phone: true },

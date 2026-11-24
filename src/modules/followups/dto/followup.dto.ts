@@ -1,8 +1,8 @@
-import { IsNotEmpty, IsString, IsEnum, IsOptional, IsDateString, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsString, IsEnum, IsOptional, IsDateString } from 'class-validator';
 import { ProjectStage, FollowupStatus } from '@prisma/client';
 
 export class CreateFollowupDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   inquiryId: string;
 

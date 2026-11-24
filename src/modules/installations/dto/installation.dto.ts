@@ -1,7 +1,7 @@
-import { IsNotEmpty, IsBoolean, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class UpdateJobProofDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   inquiryId: string;
 
