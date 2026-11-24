@@ -30,6 +30,12 @@ export class MaterialsController {
     return this.materialsService.uploadUnloadProof(dto, userId);
   }
 
+  @Post('unload-proof')
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.MATERIAL_MANAGER)
+  async uploadUnloadProofAlias(@Body() dto: UploadUnloadProofDto, @CurrentUser('id') userId: string) {
+    return this.materialsService.uploadUnloadProof(dto, userId);
+  }
+
   @Post(':id/verify-install')
   @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.MATERIAL_MANAGER)
   async verifyInstallation(@Param('id') id: string, @CurrentUser('id') userId: string) {
