@@ -20,7 +20,6 @@ export class FollowupsService {
           stage: dto.stage,
           status: dto.status,
           description: dto.description,
-          nextStep: dto.nextStep,
           committedDate: new Date(dto.committedDate),
           isOverdue: false,
         },

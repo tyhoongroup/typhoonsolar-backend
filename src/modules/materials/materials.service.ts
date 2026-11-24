@@ -63,7 +63,6 @@ export class MaterialsService {
           stage: ProjectStage.MATERIAL_PLANNED,
           status: FollowupStatus.ON_TRACK,
           description: `Material planned. Delivery scheduled for ${new Date(dto.scheduledUnloadDate).toLocaleDateString('en-IN')}. Amount due: ₹${dto.amountDueOnUnload.toLocaleString('en-IN')}.`,
-          nextStep: 'Unload material on site',
           committedDate: new Date(dto.scheduledUnloadDate),
         },
       });
@@ -94,7 +93,6 @@ export class MaterialsService {
           stage: ProjectStage.MATERIAL_UNLOADED,
           status: FollowupStatus.DONE,
           description: `Materials safely unloaded on site. Photos uploaded. Ready for fabrication & wiring teams.`,
-          nextStep: 'Installation & Accounts 2nd term payment',
           committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         },
       });
@@ -171,7 +169,6 @@ export class MaterialsService {
         stage: ProjectStage.INSTALLATION_DONE,
         status: FollowupStatus.DONE,
         description: 'Installation roof photos verified by Material Planning & Warehouse lead. Quality check passed.',
-        nextStep: 'Ready for meter filing with DISCOM',
         committedDate: new Date(),
       },
     });

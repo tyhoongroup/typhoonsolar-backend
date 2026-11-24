@@ -68,7 +68,6 @@ async function main() {
         stage: ProjectStage.INQUIRY_RECEIVED,
         status: FollowupStatus.CALL_DONE,
         description: 'Customer called. Wants a site visit this week for his bungalow.',
-        nextStep: 'Salesperson visit',
         committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // in 2 days
       },
     });

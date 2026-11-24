@@ -60,7 +60,6 @@ export class PortalService {
           stage: ProjectStage.SR_NUMBER_ISSUED,
           status: FollowupStatus.DONE,
           description: `Government SR Number issued: ${dto.srNumber}. Document verification complete. Ready for material planning.`,
-          nextStep: 'Material planning (Sohail bhai)',
           committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });
@@ -107,7 +106,6 @@ export class PortalService {
             stage: ProjectStage.METER_STARTED,
             status: FollowupStatus.DONE,
             description: `GEB bi-directional net meter installed and turned on. System is now generating solar electricity.`,
-            nextStep: 'Submit PM Surya Ghar subsidy claim & collect final payment',
             committedDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
           },
         });
@@ -124,7 +122,6 @@ export class PortalService {
             stage: ProjectStage.METER_FILE_SUBMITTED,
             status: FollowupStatus.ON_TRACK,
             description: `Meter file submitted to GEB Sub-Division office. Awaiting meter installation in 7 to 10 days.`,
-            nextStep: 'GEB meter installation',
             committedDate: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000),
           },
         });
@@ -175,7 +172,6 @@ export class PortalService {
             stage: ProjectStage.SUBSIDY_RECEIVED,
             status: FollowupStatus.DONE,
             description: `Government subsidy credited into customer bank account. Project complete.`,
-            nextStep: 'Deliver final bill & request feedback',
             committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
           },
         });
@@ -187,7 +183,6 @@ export class PortalService {
             stage: ProjectStage.SUBSIDY_CLAIMED,
             status: FollowupStatus.DELAYED,
             description: `Portal Query ${dto.subsidyQueryNo || ''}: ${dto.subsidyQueryDesc || 'Document clarification requested'}.`,
-            nextStep: 'Resolve query & re-upload to portal',
             committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
           },
         });
@@ -227,7 +222,6 @@ export class PortalService {
           stage: ProjectStage.GOVT_DOCS_SUBMITTED,
           status: FollowupStatus.DONE,
           description: 'Customer KYC documents uploaded on Government Surya Gujarat portal.',
-          nextStep: 'Awaiting DISCOM SR number generation',
           committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         },
       });

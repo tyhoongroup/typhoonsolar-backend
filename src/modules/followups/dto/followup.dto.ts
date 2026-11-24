@@ -18,10 +18,6 @@ export class CreateFollowupDto {
   @IsNotEmpty()
   description: string; // "What customer said / delay reason"
 
-  @IsString()
-  @IsOptional()
-  nextStep?: string;
-
   @IsDateString()
   @IsNotEmpty()
   committedDate: string; // SLA promised deadline

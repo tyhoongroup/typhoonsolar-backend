@@ -81,7 +81,6 @@ export class InstallationsService {
             stage: ProjectStage.INSTALLATION_DONE,
             status: FollowupStatus.DONE,
             description: `Rooftop installation completed. Structure, panels, wiring, and earthing verified. Ready for GEB net-metering file.`,
-            nextStep: 'Submit GEB net-meter file',
             committedDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
           },
         });

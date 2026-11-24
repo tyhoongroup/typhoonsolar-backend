@@ -109,7 +109,6 @@ export class QuotationsService {
           stage: ProjectStage.QUOTATION_SENT,
           status: FollowupStatus.DONE,
           description: `Quotation ${quotationNo} generated for ${calc.plantCapacityKw} kW at net ₹${calc.netCustomerCost.toLocaleString('en-IN')}.`,
-          nextStep: 'Send quotation on WhatsApp & follow up',
           committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         },
       });

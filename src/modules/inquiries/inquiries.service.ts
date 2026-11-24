@@ -126,7 +126,6 @@ export class InquiriesService {
             description: assignedSalespersonId
               ? `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city} and assigned to salesperson.`
               : `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city}.`,
-            nextStep: assignedSalespersonId ? 'Visit terrace or send quotation' : 'Assign salesperson',
             committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // Next day
           },
         });
@@ -486,7 +485,6 @@ export class InquiriesService {
           stage: ProjectStage.SITE_VISIT_PLANNED,
           status: FollowupStatus.ON_TRACK,
           description: `Lead assigned to ${salesperson.fullName}. Site survey and quotation due in ${dueDays} days.`,
-          nextStep: 'Site survey & quotation',
           committedDate,
         },
       });
@@ -520,7 +518,9 @@ export class InquiriesService {
     }
 
     const status = dto.callResult === 'CALL_DONE' ? FollowupStatus.CALL_DONE : FollowupStatus.NOT_REACHABLE;
-    const committedDate = dto.nextFollowupDate ? new Date(dto.nextFollowupDate) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const committedDate = (dto as any).committedDate
+      ? new Date((dto as any).committedDate)
+      : new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const log = await tx.followupLog.create({
@@ -530,7 +530,6 @@ export class InquiriesService {
           stage: targetInquiry.currentStage,
           status,
           description: dto.description || 'Customer phone call update logged.',
-          nextStep: dto.nextStep || 'Customer follow-up',
           committedDate,
         },
       });
@@ -583,7 +582,6 @@ export class InquiriesService {
           stage: ProjectStage.QUOTATION_SENT,
           status: FollowupStatus.DONE,
           description: `Site visit completed. Roof area and electricals verified. Notes: ${dto.notes || 'None'}`,
-          nextStep: 'Finalize quotation & close deal',
           committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         },
       });
@@ -684,7 +682,6 @@ export class InquiriesService {
           stage: ProjectStage.DEAL_CLOSED,
           status: FollowupStatus.DONE,
           description: `Deal closed successfully at ₹${dto.dealAmount.toLocaleString('en-IN')}. KYC documents collected.`,
-          nextStep: 'Govt portal document upload',
           committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         },
       });
@@ -736,7 +733,6 @@ export class InquiriesService {
           stage: ProjectStage.GOVT_DOCS_SUBMITTED,
           status: FollowupStatus.DONE,
           description: 'All KYC documents collected and uploaded. Ready for DISCOM portal application.',
-          nextStep: 'Rahul Bhai to verify & apply for DISCOM SR Number',
           committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });
@@ -787,7 +783,6 @@ export class InquiriesService {
           stage: inquiry.currentStage,
           status: FollowupStatus.DELAYED,
           description: `Document Query Raised: ${queryDesc}`,
-          nextStep: 'Salesperson to contact customer and collect correct document',
           committedDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });

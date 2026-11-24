@@ -157,7 +157,6 @@ export class PaymentsService {
           stage: savedMilestone.inquiry.currentStage,
           status: FollowupStatus.DONE,
           description: `Payment received: ₹${dto.amount.toLocaleString('en-IN')} for ${savedMilestone.title}. Ref: ${dto.transactionRef || 'Cash/Cheque'}`,
-          nextStep: 'Accounts verified',
           committedDate: new Date(),
         },
       });

@@ -131,7 +131,6 @@ model FollowupLog {
   stage         ProjectStage
   status        FollowupStatus
   description   String          @db.Text
-  nextStep      String?         @db.Text
   committedDate DateTime        @db.Timestamptz
   isOverdue     Boolean         @default(false)
   

@@ -68,11 +68,7 @@ export class LogCallDto {
 
   @IsString()
   @IsOptional()
-  nextStep?: string;
-
-  @IsString()
-  @IsOptional()
-  nextFollowupDate?: string;
+  committedDate?: string;
 }
 
 export class SiteVisitReportDto {
