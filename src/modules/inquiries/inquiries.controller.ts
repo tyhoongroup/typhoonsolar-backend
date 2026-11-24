@@ -84,7 +84,7 @@ export class InquiriesController {
   }
 
   @Post(':id/site-visit')
-  @Roles(UserRole.ADMIN, UserRole.SALESPERSON)
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.SALESPERSON)
   async submitSiteVisit(
     @Param('id') id: string,
     @Body() dto: SiteVisitReportDto,

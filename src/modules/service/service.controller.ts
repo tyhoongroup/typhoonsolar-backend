@@ -30,7 +30,7 @@ export class ServiceController {
   }
 
   @Post('tickets/:id/report')
-  @Roles(UserRole.ADMIN, UserRole.SERVICE_TECH)
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.SERVICE_TECH)
   async submitReport(@Param('id') id: string, @Body() dto: SubmitServiceReportDto) {
     return this.serviceService.submitReport(id, dto);
   }

@@ -25,7 +25,7 @@ export class InstallationsController {
   }
 
   @Post(':id/proof')
-  @Roles(UserRole.ADMIN, UserRole.INSTALLATION_TEAM)
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.INSTALLATION_TEAM, UserRole.MATERIAL_MANAGER)
   async updateJobProof(
     @Param('id') id: string,
     @Body() dto: UpdateJobProofDto,

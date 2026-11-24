@@ -25,7 +25,7 @@ export class PaymentsController {
   }
 
   @Post('record')
-  @Roles(UserRole.ADMIN, UserRole.ACCOUNTANT)
+  @Roles(UserRole.ADMIN, UserRole.OPS_MANAGER, UserRole.ACCOUNTANT)
   async recordPayment(@Body() dto: RecordPaymentDto, @CurrentUser('id') userId: string) {
     return this.paymentsService.recordPayment(dto, userId);
   }
