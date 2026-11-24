@@ -16,7 +16,12 @@ export class MaterialsService {
     return this.prisma.inquiry.findMany({
       where: {
         currentStage: {
-          in: [ProjectStage.SR_NUMBER_ISSUED, ProjectStage.MATERIAL_PLANNED],
+          in: [
+            ProjectStage.SR_NUMBER_ISSUED,
+            ProjectStage.MATERIAL_PLANNED,
+            ProjectStage.MATERIAL_UNLOADED,
+            ProjectStage.INSTALLATION_DONE,
+          ],
         },
       },
       include: {
