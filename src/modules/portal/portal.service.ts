@@ -39,15 +39,18 @@ export class PortalService {
             ProjectStage.DEAL_CLOSED,
             ProjectStage.GOVT_DOCS_SUBMITTED,
             ProjectStage.SR_NUMBER_ISSUED,
+            ProjectStage.INSTALLATION_DONE,
             ProjectStage.METER_FILE_SUBMITTED,
             ProjectStage.METER_STARTED,
             ProjectStage.SUBSIDY_CLAIMED,
+            ProjectStage.SUBSIDY_RECEIVED,
           ],
         },
       },
       include: {
         portalApplication: true,
         documents: true,
+        installationJob: true,
       },
       orderBy: { updatedAt: 'desc' },
     });
