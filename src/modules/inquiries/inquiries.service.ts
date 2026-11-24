@@ -28,7 +28,7 @@ export class InquiriesService {
       const inquiries = await this.prisma.inquiry.findMany({
         select: { followupId: true },
       });
-      let maxNum = 1024;
+      let maxNum = 0;
       for (const inq of inquiries) {
         const match = inq.followupId?.match(/\d+/);
         if (match) {
@@ -38,7 +38,7 @@ export class InquiriesService {
       }
       return `F-${maxNum + 1}`;
     } catch {
-      return `F-${Date.now().toString().slice(-4)}`;
+      return `F-1`;
     }
   }
 
