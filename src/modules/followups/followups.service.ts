@@ -61,6 +61,64 @@ export class FollowupsService {
     });
   }
 
+  async findAll(query: { teamMemberId?: string; type?: string; inquiryId?: string; stage?: string }) {
+    const where: any = {};
+    if (query.teamMemberId && query.teamMemberId !== 'all') {
+      where.createdById = query.teamMemberId;
+    }
+    if (query.stage && query.stage !== 'all') {
+      where.stage = query.stage as any;
+    }
+    if (query.inquiryId) {
+      where.inquiryId = query.inquiryId;
+    }
+
+    const inquiryStages: any[] = [
+      'INQUIRY_RECEIVED',
+      'SITE_VISIT_PLANNED',
+      'QUOTATION_SENT',
+    ];
+
+    if (query.type === 'inquiry') {
+      where.inquiry = {
+        ...where.inquiry,
+        currentStage: { in: inquiryStages },
+      };
+    } else if (query.type === 'project') {
+      where.inquiry = {
+        ...where.inquiry,
+        currentStage: { notIn: inquiryStages },
+      };
+    }
+
+    return this.prisma.followupLog.findMany({
+      where,
+      include: {
+        inquiry: {
+          select: {
+            id: true,
+            followupId: true,
+            customerName: true,
+            customerPhone: true,
+            requestedKw: true,
+            city: true,
+            currentStage: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            fullName: true,
+            role: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
   async getByInquiry(inquiryId: string) {
     const inquiry = await this.prisma.inquiry.findFirst({
       where: this.getInquiryWhere(inquiryId),

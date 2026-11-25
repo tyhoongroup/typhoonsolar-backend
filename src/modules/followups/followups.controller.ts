@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { FollowupsService } from './followups.service';
 import { CreateFollowupDto, UpdateFollowupStatusDto } from './dto/followup.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -8,6 +8,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard)
 export class FollowupsController {
   constructor(private readonly followupsService: FollowupsService) {}
+
+  @Get()
+  async findAll(@Query() query: any) {
+    return this.followupsService.findAll(query);
+  }
 
   @Post()
   async create(@Body() dto: CreateFollowupDto, @CurrentUser('id') userId: string) {
