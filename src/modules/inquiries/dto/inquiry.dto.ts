@@ -143,6 +143,10 @@ export class UpdateInquiryDto {
   @IsOptional()
   @IsBoolean()
   isUrgent?: boolean;
+
+  @IsOptional()
+  @IsEnum(ProjectStage)
+  currentStage?: ProjectStage;
 }
 
 export class InquiryFilterDto {

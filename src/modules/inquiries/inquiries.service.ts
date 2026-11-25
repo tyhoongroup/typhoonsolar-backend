@@ -840,6 +840,28 @@ export class InquiriesService {
     if (dto.meterPhase) data.meterPhase = dto.meterPhase;
     if (dto.isUrgent !== undefined) data.isUrgent = dto.isUrgent;
 
+    if (dto.currentStage) {
+      data.currentStage = dto.currentStage;
+      let creatorId = userId;
+      if (!userId || !UUID_REGEX.test(userId)) {
+        const staff = await this.prisma.user.findFirst({
+          where: { role: { in: [UserRole.OPS_MANAGER, UserRole.ADMIN, UserRole.SALESPERSON] } },
+          select: { id: true },
+        });
+        creatorId = staff?.id || inquiry.assignedSalespersonId || inquiry.id;
+      }
+      await this.prisma.followupLog.create({
+        data: {
+          inquiryId: inquiry.id,
+          createdById: creatorId,
+          stage: dto.currentStage,
+          status: FollowupStatus.ON_TRACK,
+          description: `Stage updated to ${dto.currentStage.replace(/_/g, ' ')}.`,
+          committedDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+        },
+      });
+    }
+
     return this.prisma.inquiry.update({
       where: { id: inquiry.id },
       data,
