@@ -55,6 +55,10 @@ export class AssignSalespersonDto {
   @IsNumber()
   @IsOptional()
   dueDays?: number;
+
+  @IsString()
+  @IsOptional()
+  structureType?: string;
 }
 
 export class LogCallDto {

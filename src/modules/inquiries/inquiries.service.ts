@@ -109,7 +109,7 @@ export class InquiriesService {
             requestedKw: Number(dto.requestedKw) || 6.0,
             meterPhase: dto.meterPhase || 'Single Phase',
             isUrgent: dto.isUrgent ?? false,
-            currentStage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
+            currentStage: ProjectStage.INQUIRY_RECEIVED,
             assignedSalespersonId: assignedSalespersonId || null,
             assignedAt: assignedSalespersonId ? new Date() : null,
             quoteDueDays: assignedSalespersonId ? 3 : null,
@@ -121,8 +121,8 @@ export class InquiriesService {
           data: {
             inquiryId: inquiry.id,
             createdById: creatorId,
-            stage: assignedSalespersonId ? ProjectStage.SITE_VISIT_PLANNED : ProjectStage.INQUIRY_RECEIVED,
-            status: FollowupStatus.CALL_DONE,
+            stage: ProjectStage.INQUIRY_RECEIVED,
+            status: FollowupStatus.ON_TRACK,
             description: assignedSalespersonId
               ? `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city} and assigned to salesperson.`
               : `Inquiry recorded for ${dto.requestedKw} kW (${dto.meterPhase}) in ${dto.city}.`,
@@ -142,6 +142,27 @@ export class InquiriesService {
           isUrgent: dto.isUrgent ?? false,
         }).catch((err) => {
           console.warn('[FCM] Notification dispatch skipped:', err?.message || err);
+        });
+      } else {
+        // Public inquiry submitted without salesperson: notify Operations Manager
+        this.prisma.user.findMany({
+          where: {
+            role: { in: [UserRole.OPS_MANAGER, UserRole.ADMIN] },
+            isActive: true,
+          },
+          select: { id: true },
+        }).then((opsManagers) => {
+          for (const ops of opsManagers) {
+            this.fcmService.sendToUser({
+              userId: ops.id,
+              title: dto.isUrgent ? 'URGENT Public Inquiry Received' : 'New Public Inquiry Received',
+              body: `New solar inquiry from ${dto.customerName} (${dto.requestedKw} kW · ${dto.city}). Assign salesperson now.`,
+              targetUrl: `/inquiries/${followupId}`,
+              isUrgent: true,
+            }).catch(() => {});
+          }
+        }).catch((err) => {
+          console.warn('[FCM] Ops notification dispatch skipped:', err?.message || err);
         });
       }
 
@@ -474,17 +495,18 @@ export class InquiriesService {
           assignedSalespersonId: salesperson.id,
           assignedAt: new Date(),
           quoteDueDays: dueDays,
-          currentStage: ProjectStage.SITE_VISIT_PLANNED,
+          currentStage: targetInquiry.currentStage || ProjectStage.INQUIRY_RECEIVED,
         },
       });
 
+      const catText = dto.structureType ? ` [Category: ${dto.structureType}]` : '';
       await tx.followupLog.create({
         data: {
           inquiryId: targetInquiry.id,
           createdById: creatorId,
-          stage: ProjectStage.SITE_VISIT_PLANNED,
+          stage: targetInquiry.currentStage || ProjectStage.INQUIRY_RECEIVED,
           status: FollowupStatus.ON_TRACK,
-          description: `Lead assigned to ${salesperson.fullName}. Site survey and quotation due in ${dueDays} days.`,
+          description: `Lead assigned to ${salesperson.fullName}${catText}. Site survey and quotation due in ${dueDays} days.`,
           committedDate,
         },
       });
@@ -579,7 +601,7 @@ export class InquiriesService {
         data: {
           inquiryId: realId,
           createdById: salesUserId,
-          stage: ProjectStage.QUOTATION_SENT,
+          stage: ProjectStage.SITE_VISIT_PLANNED,
           status: FollowupStatus.DONE,
           description: `Site visit completed. Roof area and electricals verified. Notes: ${dto.notes || 'None'}`,
           committedDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
@@ -588,7 +610,7 @@ export class InquiriesService {
 
       await tx.inquiry.update({
         where: { id: realId },
-        data: { currentStage: ProjectStage.QUOTATION_SENT },
+        data: { currentStage: ProjectStage.SITE_VISIT_PLANNED },
       });
 
       return siteVisit;
